@@ -164,6 +164,24 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
+bool isCarWithinBuffer(int lane, double s, int prev_size, vector<vector<double>> sensor_fusion){
+	for(int i = 0; i<sensor_fusion.size(); i++){
+		double d = sensor_fusion[i][6];
+		
+		if(d<(2+4*lane+2) && d>(2+4*lane-2)){
+			double vx = sensor_fusion[i][3];
+			double vy = sensor_fusion[i][4];
+			double check_speed = sqrt(vx*vx+vy*vy);
+			double check_car_s = sensor_fusion[i][5];
+			check_car_s+= ((double)prev_size*0.02*check_speed);
+			if(check_car_s < s+15 && check_car_s > s-15){
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 int main() {
   uWS::Hub h;
 
@@ -268,13 +286,13 @@ int main() {
 						//ref_vel=29.5;
 						too_close = true;
 						int new_lane = lane - 1;
-						if(new_lane>=0 && new_lane < 3){
+						if(new_lane>=0 && new_lane < 3 && !isCarWithinBuffer(new_lane,car_s,prev_size,sensor_fusion)){
 							lane=new_lane;
 							too_close=false;
 						}
 						else {
 							new_lane = lane + 1;
-							if(new_lane>=0 && new_lane < 3){
+							if(new_lane>=0 && new_lane < 3 && !isCarWithinBuffer(new_lane,car_s,prev_size,sensor_fusion)){
 							lane=new_lane;
 							too_close=false;
 						}
