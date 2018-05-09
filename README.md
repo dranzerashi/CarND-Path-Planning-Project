@@ -60,81 +60,8 @@ the path has processed since last time.
 
 2. There will be some latency between the simulator running and the path planner returning a path, with optimized code usually its not very long maybe just 1-3 time steps. During this delay the simulator will continue using points that it was last given, because of this its a good idea to store the last points you have used so you can have a smooth transition. previous_path_x, and previous_path_y can be helpful for this transition since they show the last points given to the simulator controller with the processed points already removed. You would either return a path that extends this previous path or make sure to create a new path that has a smooth transition with this last path.
 
-## Tips
 
-A really helpful resource for doing this project and creating smooth trajectories was using http://kluge.in-chemnitz.de/opensource/spline/, the spline function is in a single hearder file is really easy to use.
-
----
-
-## Dependencies
-
-* cmake >= 3.5
-  * All OSes: [click here for installation instructions](https://cmake.org/install/)
-* make >= 4.1
-  * Linux: make is installed by default on most Linux distros
-  * Mac: [install Xcode command line tools to get make](https://developer.apple.com/xcode/features/)
-  * Windows: [Click here for installation instructions](http://gnuwin32.sourceforge.net/packages/make.htm)
-* gcc/g++ >= 5.4
-  * Linux: gcc / g++ is installed by default on most Linux distros
-  * Mac: same deal as make - [install Xcode command line tools]((https://developer.apple.com/xcode/features/)
-  * Windows: recommend using [MinGW](http://www.mingw.org/)
-* [uWebSockets](https://github.com/uWebSockets/uWebSockets)
-  * Run either `install-mac.sh` or `install-ubuntu.sh`.
-  * If you install from source, checkout to commit `e94b6e1`, i.e.
-    ```
-    git clone https://github.com/uWebSockets/uWebSockets 
-    cd uWebSockets
-    git checkout e94b6e1
-    ```
-
-## Editor Settings
-
-We've purposefully kept editor configuration files out of this repo in order to
-keep it as simple and environment agnostic as possible. However, we recommend
-using the following settings:
-
-* indent using spaces
-* set tab width to 2 spaces (keeps the matrices in source code aligned)
-
-## Code Style
-
-Please (do your best to) stick to [Google's C++ style guide](https://google.github.io/styleguide/cppguide.html).
-
-## Project Instructions and Rubric
-
-Note: regardless of the changes you make, your project must be buildable using
-cmake and make!
-
-
-## Call for IDE Profiles Pull Requests
-
-Help your fellow students!
-
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to ensure
-that students don't feel pressured to use one IDE or another.
-
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
-
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
-
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
-
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
-
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
-
-## How to write a README
-A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
-
+## Model Documentation
+Here I start by setting the `prev_size` as the size of the list of previously generated points that were not used by the car. If there is any such point then I set the s value of the last point as the current `car_s` value. Then I iterate through the list of sensor values in the sensor fusion array for each car and Check if any car in same lane is too close to our car (within 30m infront). If so check if a lane change is possible. 
+To check if a car is infront I first check if the car is in the same lane as ours by checking if the car is within the corresponding range of d values for the given lane. If so then I check if a change lane left operation is safe by first checking whether a lane exists on the left in the first place and if it does I use the `isCarWithinBuffer()` function to check if there is any car within the given buffer area of +/- 15m in the given lane. If it is safe I set the `lane` variable to the left lane. Otherwise I check if the change lane right operation is possible in a similar way. If neither is possible I alert the car to slow down(at a rate of 7m/s) and keep the current lane so as to avoid collision. Finally if no car is in proximity of current lane and the current velocity of our car is less than 49.5mph then I increase the speed of the car so that it reaches the max lane speed allowed. Based on the four states above that is Keep Lane and speed up, Keep lane and slow down, Change Lane Left and Change Lane Right I generate the trajectory for the car to follow. For this we take the starting state of the car (x,y and heading yaw) and generate 5 waypoints. The first two waypoints are the previous and current state. This is either taken as last two points from the prevous trajectory list if more than 2 points are available or the current point and based on the current point a prevoius point is estimated using model equations. The final 3 points are future predictions/estimations made at a distance of 30m, 60m and 90m from current state These waypoints also take into account the shift in lane if any. Then I iterate through the waypoints points and convert them from map coordinates to car coordinates. Finally the five waypoints are used to calculate the spline that passes through every waypoint in the waypoint list. The spline ensures a smooth and minimal jerk path for the car to travel. The delta for the lane shift here is 30meters. 
+Now I add all the remaining unused points from prevoius path to the new trajectory list. The remaining points that are required is generated from the spline. For this first I get the corresponding y value of the point 30m ahead of current state(ie last s value from previous points) using the generated spline. Now I use this as target point and calculate the target distance from car to the calculated target x,y point. From this using the reference velocity and update rate(0.02s) I find the total number of divisions N to be made in the predicted trajectory to ensure a smooth and jerk free ride. Using this I find the x value for the next step and then use spline to generate the corresponding y value. Finally I convert the predicted points from vehicle coordintes back to map coordinates and add them to the new trajectory list. I repeat this process untill there are a total of 50 points for the new trajectory.

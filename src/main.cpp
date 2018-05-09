@@ -164,6 +164,7 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
+// Check if there is any car within the given buffer area of +/- 15m in a given lane.
 bool isCarWithinBuffer(int lane, double s, int prev_size, vector<vector<double>> sensor_fusion){
 	for(int i = 0; i<sensor_fusion.size(); i++){
 		double d = sensor_fusion[i][6];
@@ -272,8 +273,10 @@ int main() {
 			}
 			bool too_close = false;
 
+			// Check if any car in same lane is too close to our car. If so check if a lane change is possible.
 			for(int i = 0; i<sensor_fusion.size(); i++){
 				double d = sensor_fusion[i][6];
+				//Check if the car is in the same lane as ours
 				if(d<(2+4*lane+2) && d>(2+4*lane-2)){
 					double vx = sensor_fusion[i][3];
 					double vy = sensor_fusion[i][4];
@@ -281,15 +284,17 @@ int main() {
 					double check_car_s = sensor_fusion[i][5];
 
 					check_car_s+= ((double)prev_size*0.02*check_speed);
-					
+					// check if the car within 30m in front of us
 					if(check_car_s>car_s && check_car_s-car_s<30){
-						//ref_vel=29.5;
+						//set of a proximity alert
 						too_close = true;
 						int new_lane = lane - 1;
+						//check if a change lane left operation is safe 
 						if(new_lane>=0 && new_lane < 3 && !isCarWithinBuffer(new_lane,car_s,prev_size,sensor_fusion)){
 							lane=new_lane;
 							too_close=false;
 						}
+						//otherwise check if a change lane right operation is safe
 						else {
 							new_lane = lane + 1;
 							if(new_lane>=0 && new_lane < 3 && !isCarWithinBuffer(new_lane,car_s,prev_size,sensor_fusion)){
@@ -301,103 +306,116 @@ int main() {
 
 				}
 			}
-
+			// If the a car is too close then slow down the velocity
 			if(too_close){
 				ref_vel -= 0.224;
 			}
+			// If there is no car ahead of us within 30m and the velocity is less than 49.5miles per hour increase the velocity
 			else if(ref_vel < 49.5){
 				ref_vel += 0.224;
 			}
 
 
 
-						vector<double> ptsx, ptsy;
-						double ref_x = car_x;
-						double ref_y = car_y;
-						double ref_yaw = deg2rad(car_yaw);
-
-						if(prev_size<2){
-							double prev_car_x = car_x-cos(car_yaw);
-							double prev_car_y = car_y-sin(car_yaw); 
+			vector<double> ptsx, ptsy;
+			double ref_x = car_x;
+			double ref_y = car_y;
+			double ref_yaw = deg2rad(car_yaw);
+			//If nearly all the previous points generated were used up generate a previous point from the current state.			
+			if(prev_size<2){
+				double prev_car_x = car_x-cos(car_yaw);
+				double prev_car_y = car_y-sin(car_yaw); 
+				
+				// Add previous point to waypoint list
+				ptsx.push_back(prev_car_x);
+				ptsy.push_back(prev_car_y);
+				// Add current point to waypoint list
+				ptsx.push_back(car_x);
+				ptsy.push_back(car_y);
 							
-							ptsx.push_back(prev_car_x);
-							ptsy.push_back(prev_car_y);
+				} else{
+				ref_x = previous_path_x[prev_size-1];
+				ref_y= previous_path_y[prev_size-1];
 
-							ptsx.push_back(car_x);
-							ptsy.push_back(car_y);
+				double ref_prev_x = previous_path_x[prev_size-2];
+				double ref_prev_y = previous_path_y[prev_size-2];
+				ref_yaw = atan2(ref_y-ref_prev_y, ref_x - ref_prev_x);
+
+				//Add the last two points from previous points to waypoint list
+				ptsx.push_back(ref_prev_x);
+				ptsy.push_back(ref_prev_y);
+
+				ptsx.push_back(ref_x);
+				ptsy.push_back(ref_y);
+			}
+
+			// Preidct the waypoint for the car 30, 60 and 90 meters into the future for given lane.
+			vector<double> next_wp0 = getXY(car_s+30, lane_length * lane + (lane_length / 2), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+			vector<double> next_wp1 = getXY(car_s+60, lane_length * lane + (lane_length / 2), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+			vector<double> next_wp2 = getXY(car_s+90, lane_length * lane + (lane_length / 2), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+
+			// Add the predicted waypoints to the waypoint list.
+			ptsx.push_back(next_wp0[0]);
+			ptsy.push_back(next_wp0[1]);
+
+			ptsx.push_back(next_wp1[0]);
+			ptsy.push_back(next_wp1[1]);
+
+			ptsx.push_back(next_wp2[0]);
+			ptsy.push_back(next_wp2[1]);
+
+			// Iterate through the waypoints points and convert from map coordinates to car coordinates.
+			for(int i = 0; i < ptsx.size(); i++){
+				double shift_x = ptsx[i] - ref_x;
+				double shift_y = ptsy[i] - ref_y;
+
+				ptsx[i] = shift_x*cos(0-ref_yaw) - shift_y*sin(0-ref_yaw);
+				ptsy[i] = shift_x*sin(0-ref_yaw) + shift_y*cos(0-ref_yaw);
+			}
+
+			tk::spline s;
+			// Make a spline that passes through every waypoint using the waypoint list.
+			s.set_points(ptsx,ptsy);
+
+			// Add all the remaining unused points from prevoius path to the next values.
+			for(int i = 0; i < previous_path_x.size(); i++){
 							
-						} else{
-							ref_x = previous_path_x[prev_size-1];
-							ref_y= previous_path_y[prev_size-1];
+				next_x_vals.push_back(previous_path_x[i]);
+				next_y_vals.push_back(previous_path_y[i]);
+			}
 
-							double ref_prev_x = previous_path_x[prev_size-2];
-							double ref_prev_y = previous_path_y[prev_size-2];
-							ref_yaw = atan2(ref_y-ref_prev_y, ref_x - ref_prev_x);
+			// Get the corresponding y value of the point 30m ahead of current state.
+			double target_x = 30.0;
+			double target_y = s(target_x);
+			// Calculate the distance from car to the calculated x,y
+			double target_dist = sqrt((target_x*target_x)+(target_y*target_y));
 
-							ptsx.push_back(ref_prev_x);
-							ptsy.push_back(ref_prev_y);
+			double x_add_on = 0;
 
-							ptsx.push_back(ref_x);
-							ptsy.push_back(ref_y);
-						}
+			// Generate remaining points using the calculated spline.
+			for(int i = 0; i < 50 - previous_path_x.size(); i++){
+				// Find the next x value for the point by using the total distance and velocity.
+				double N = (target_dist/(0.02*ref_vel/2.24));
+				double x_point = x_add_on + (target_x/N);
+				// Get the corresponding y point from spline
+				double y_point = s(x_point);
 
-						vector<double> next_wp0 = getXY(car_s+30, lane_length * lane + (lane_length / 2), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-						vector<double> next_wp1 = getXY(car_s+60, lane_length * lane + (lane_length / 2), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-						vector<double> next_wp2 = getXY(car_s+90, lane_length * lane + (lane_length / 2), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+				x_add_on = x_point;
 
-						ptsx.push_back(next_wp0[0]);
-						ptsy.push_back(next_wp0[1]);
+				double x_ref = x_point;
+				double y_ref = y_point;
 
-						ptsx.push_back(next_wp1[0]);
-						ptsy.push_back(next_wp1[1]);
+				// Convert from vehicle coordintes back to map coordinates.
+				x_point = x_ref*cos(ref_yaw)-y_ref*sin(ref_yaw);
+				y_point = x_ref*sin(ref_yaw)+y_ref*cos(ref_yaw);
 
-						ptsx.push_back(next_wp2[0]);
-						ptsy.push_back(next_wp2[1]);
+				x_point += ref_x;
+				y_point += ref_y;
 
-						for(int i = 0; i < ptsx.size(); i++){
-							double shift_x = ptsx[i] - ref_x;
-							double shift_y = ptsy[i] - ref_y;
-
-							ptsx[i] = shift_x*cos(0-ref_yaw) - shift_y*sin(0-ref_yaw);
-							ptsy[i] = shift_x*sin(0-ref_yaw) + shift_y*cos(0-ref_yaw);
-						}
-
-						tk::spline s;
-
-						s.set_points(ptsx,ptsy);
-						for(int i = 0; i < previous_path_x.size(); i++){
-							
-							next_x_vals.push_back(previous_path_x[i]);
-							next_y_vals.push_back(previous_path_y[i]);
-						}
-
-
-
-						double target_x = 30.0;
-						double target_y = s(target_x);
-						double target_dist = sqrt((target_x*target_x)+(target_y*target_y));
-
-						double x_add_on = 0;
-
-						for(int i = 0; i < 50 - previous_path_x.size(); i++){
-							double N = (target_dist/(0.02*ref_vel/2.24));
-							double x_point = x_add_on + (target_x/N);
-							double y_point = s(x_point);
-
-							x_add_on = x_point;
-
-							double x_ref = x_point;
-							double y_ref = y_point;
-
-							x_point = x_ref*cos(ref_yaw)-y_ref*sin(ref_yaw);
-							y_point = x_ref*sin(ref_yaw)+y_ref*cos(ref_yaw);
-
-							x_point += ref_x;
-							y_point += ref_y;
-
-							next_x_vals.push_back(x_point);
-							next_y_vals.push_back(y_point);
-						}
+				// Add the new points to new vals list.
+				next_x_vals.push_back(x_point);
+				next_y_vals.push_back(y_point);
+			}
 
 
 
